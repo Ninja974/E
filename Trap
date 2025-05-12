@@ -1,0 +1,229 @@
+--Map 2 Priv
+repeat task.wait() until game:IsLoaded()
+local Library = loadstring(game:HttpGetAsync("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local options = Library.Options
+warn("---------------------------------")
+-- SERVICES
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+-- VARS 
+local client = Players.LocalPlayer
+repeat task.wait() until game:GetService("ReplicatedStorage").Player_Data:FindFirstChild(client.Name)
+local playerValues = game:GetService("ReplicatedStorage").PlayerValues:WaitForChild(client.Name)
+local playerData = game:GetService("ReplicatedStorage").Player_Data:WaitForChild(client.Name)
+local Handle_Initiate_S = game:GetService("ReplicatedStorage").Remotes.To_Server:WaitForChild("Handle_Initiate_S")
+local Handle_Initiate_S_ = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("To_Server"):WaitForChild("Handle_Initiate_S_")
+local distance = 15
+
+-- DUMP
+local places = require(game:GetService("ReplicatedStorage").Modules.Global.Map_Locaations)
+local bosses = {}
+for i, v in workspace.Mobs.Bosses:GetDescendants() do
+    if v:IsA("Configuration") and v:FindFirstChild("Npc_Configuration") then
+        print(i, v)
+        local info = require(v.Npc_Configuration)
+        bosses[info["Name"]] = info["Npc_Spawning"]["Spawn_Locations"][1]
+    end
+end
+local temp = {
+    workspace.Mobs.Heikin["Reaper Boss"];
+    workspace.Mobs.Village_1_quest_bandits.BanditBoss;
+}
+for i, v in temp do
+    local info = require(v.Npc_Configuration)
+    bosses[info["Name"]] = info["Npc_Spawning"]["Spawn_Locations"][1]
+end
+
+temp = nil
+
+-- FUNCTION
+local globalTween = nil
+local tweento = function(coords:CFrame)
+    local Distance = (coords.Position - client.Character.HumanoidRootPart.Position).Magnitude
+    local Speed = Distance/options["sTweenSpeed"].Value
+
+    local tween = TweenService:Create(client.Character.HumanoidRootPart,
+        TweenInfo.new(Speed, Enum.EasingStyle.Linear),
+        { CFrame = coords}
+    )
+    globalTween = tween
+    tween:Play()
+    return tween
+end
+
+function tpto(p1)
+    pcall(function()
+        client.Character.HumanoidRootPart.CFrame = p1
+    end)
+end
+local counter = 0
+local time = tick()
+--[[local function smartTp(dest:Vector3)
+    local closest = nil
+    local shortest = (client.Character.HumanoidRootPart.Position - dest).Magnitude
+    for loc, coord in places do
+        if playerData.MapUi.UnlockedLocations:FindFirstChild(loc) and game:GetService("Players").LocalPlayer.PlayerGui.Map_Ui.Holder.Locations:FindFirstChild(loc) then
+            local dist = (coord-dest).Magnitude
+            if dist < shortest then
+                closest = loc
+                shortest = dist
+            end
+        end
+    end
+    if closest then
+        local args = {
+            [1] = `Players.{client.Name}.PlayerGui.Npc_Dialogue.Guis.ScreenGui.LocalScript`,
+            [2] = os.clock(),
+            [3] = closest
+        }
+        game:GetService("ReplicatedStorage"):WaitForChild("teleport_player_to_location_for_map_tang"):InvokeServer(unpack(args))
+        counter+=1
+        print(counter)
+    end
+end]]
+
+local function findBoss(name, hrp)
+    for i, v in pairs(workspace.Mobs:GetDescendants()) do
+        if v:IsA("Model") and v.Name == name and v:FindFirstChild("Humanoid") then
+            if hrp then
+                if v:FindFirstChild('HumanoidRootPart') then
+                    return v
+                end
+            else
+                return v
+            end
+        end
+    end
+end
+
+local function findMob(hrp)
+    for i, v in pairs(workspace.Mobs:GetDescendants()) do
+        if v:IsA("Model") and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+            if hrp then
+                if v:FindFirstChild('HumanoidRootPart') then
+                    return v
+                end
+            else
+                return v
+            end
+        end
+    end
+    return nil
+end
+
+local function noclip()
+    for i, v in pairs(client.Character:GetChildren()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = false
+        end
+    end
+end
+
+local function webhook(item)
+    local img_link = string.match(item.Image.Image, "id=(%d+)")
+    local ret; 
+	repeat
+		ret = request({
+			Url = `https://thumbnails.roblox.com/v1/assets?assetIds={img_link}&size=250x250&format=Png&cacheBust={tostring(tick())}`,
+			Method = "GET",
+			Headers = {
+				["Content-Type"] = "text/json",
+			}
+		})
+		task.wait(0.3)
+	until HttpService:JSONDecode(ret.Body)["data"][1]["state"] == "Completed"
+    local msg = {
+        ["embeds"] = {
+            {
+                ["title"] = "Got An Item !!!",
+                ["color"] = 16711680,
+                ["fields"] = {},
+                ["thumbnail"] = {
+                    ["url"] = HttpService:JSONDecode(ret.Body)["data"][1]["imageUrl"];
+                },
+                ["description"] = `||{client.Name}|| collected a \n{item.Name}`,
+                ["timestamp"] = DateTime.now():ToIsoDate(),
+            },
+        },
+        ["username"] = "Step Mom",
+        ["avatar_url"] = "https://cdn.discordapp.com/avatars/1300809146903429120/152ae0be266098e7a09ce8548796fc63.png",
+    }
+    request({
+        Url = options["iWebhook"].Value,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json",
+        },
+        Body = HttpService:JSONEncode(msg),
+    })
+end
+
+-- GUI PART
+--local SaveManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/dawid-scripts/Fluent-Renewed/master/Addons/SaveManager.luau"))()
+--local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/dawid-scripts/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+
+local Window;
+if UserInputService.TouchEnabled then
+    Window = Library:CreateWindow{
+        Title = `Cloudhub | Project Slayer |Trap`,
+        TabWidth = 160,
+        Size = UDim2.fromOffset(600, 300);
+        Resize = true, -- Resize this ^ Size according to a 1920x1080 screen, good for mobile users but may look weird on some devices
+        MinSize = Vector2.new(235, 190),
+        Acrylic = true, -- The blur may be detectable, setting this to false disables blur entirely
+        Theme = "Dark",
+        MinimizeKey = Enum.KeyCode.RightShift -- Used when theres no MinimizeKeybind
+    }
+    local ScreenGui = Instance.new("ScreenGui", gethui())
+    local Frame = Instance.new("ImageButton", ScreenGui)
+    Frame.Size = UDim2.fromOffset(60, 60)
+    Frame.Position = UDim2.fromOffset(30, 30)
+    Window.Root.Active = true
+    Frame.MouseButton1Click:Connect(function()
+        Window:Minimize()
+    end)
+else
+    Window = Library:CreateWindow{
+        Title = `Cloudhub | Project Slayer | Trap`,
+        TabWidth = 160,
+        Size = UDim2.fromOffset(830, 525),
+        Resize = true, -- Resize this ^ Size according to a 1920x1080 screen, good for mobile users but may look weird on some devices
+        MinSize = Vector2.new(470, 380),
+        Acrylic = true, -- The blur may be detectable, setting this to false disables blur entirely
+        Theme = "Dark",
+        MinimizeKey = Enum.KeyCode.RightShift -- Used when theres no MinimizeKeybind
+    }
+end
+
+local Tabs = {
+    ["Trap"] = Window:AddTab({Title = "Auto Farm", Icon = ""});
+}
+
+Tabs["Trap"]:AddToggle("tTRap", {
+	Title = "Swamp Trap",
+	Default = false,
+	Callback = function(Value)
+		if Value then
+			task.spawn(function()
+				while options.tTRap.Value do
+					local args = {
+						[1] = "swamp_trap_damage",
+						[2] = game.Players.LocalPlayer.Character,
+						[3] = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(1.228732031677282e-07, -1.199800729751587, 8.192461109501892e-08)
+					}
+					game.ReplicatedStorage.Remotes.To_Server.Handle_Initiate_S:FireServer(unpack(args))
+					task.wait(0.1)
+				end
+			end)
+		end
+	end
+})
+
+
