@@ -1,72 +1,13 @@
---Map 2 Priv
-repeat task.wait() until game:IsLoaded()
-local Library = loadstring(game:HttpGetAsync("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
-local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+while true do task.wait()
 
-local options = Library.Options
-warn("---------------------------------")
-
-
--- GUI PART
---local SaveManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/dawid-scripts/Fluent-Renewed/master/Addons/SaveManager.luau"))()
---local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/dawid-scripts/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
-
-local Window;
-if UserInputService.TouchEnabled then
-    Window = Library:CreateWindow{
-        Title = `Cloudhub | Project Slayer |Trap`,
-        TabWidth = 160,
-        Size = UDim2.fromOffset(600, 300);
-        Resize = true, -- Resize this ^ Size according to a 1920x1080 screen, good for mobile users but may look weird on some devices
-        MinSize = Vector2.new(235, 190),
-        Acrylic = true, -- The blur may be detectable, setting this to false disables blur entirely
-        Theme = "Dark",
-        MinimizeKey = Enum.KeyCode.RightShift -- Used when theres no MinimizeKeybind
-    }
-    local ScreenGui = Instance.new("ScreenGui", gethui())
-    local Frame = Instance.new("ImageButton", ScreenGui)
-    Frame.Size = UDim2.fromOffset(60, 60)
-    Frame.Position = UDim2.fromOffset(30, 30)
-    Window.Root.Active = true
-    Frame.MouseButton1Click:Connect(function()
-        Window:Minimize()
-    end)
-else
-    Window = Library:CreateWindow{
-        Title = `Cloudhub | Project Slayer | Trap`,
-        TabWidth = 160,
-        Size = UDim2.fromOffset(830, 525),
-        Resize = true, -- Resize this ^ Size according to a 1920x1080 screen, good for mobile users but may look weird on some devices
-        MinSize = Vector2.new(470, 380),
-        Acrylic = true, -- The blur may be detectable, setting this to false disables blur entirely
-        Theme = "Dark",
-        MinimizeKey = Enum.KeyCode.RightShift -- Used when theres no MinimizeKeybind
-    }
-end
-
-local Tabs = {
-    ["Trap"] = Window:AddTab({Title = "Auto Farm", Icon = ""});
+local args = {
+    [1] = "swamp_trap_damage",
+    [2] = game:GetService("Players").LocalPlayer.Character,
+    [3] = game:GetService("Players").LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(1.228732031677282e-07, -1.199800729751587, 8.192461109501892e-08)
 }
 
-Tabs["Trap"]:AddToggle("tTRap", {
-	Title = "Swamp Trap",
-	Default = false,
-	Callback = function(Value)
-		if Value then
-			task.spawn(function()
-				while options.tTRap.Value do
-					local args = {
-						[1] = "swamp_trap_damage",
-						[2] = game.Players.LocalPlayer.Character,
-						[3] = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(1.228732031677282e-07, -1.199800729751587, 8.192461109501892e-08)
-					}
-					game.ReplicatedStorage.Remotes.To_Server.Handle_Initiate_S:FireServer(unpack(args))
-					task.wait(0.1)
-				end
-			end)
-		end
-	end
-})
+game:GetService("ReplicatedStorage").Remotes.To_Server.Handle_Initiate_S:FireServer(unpack(args))
 
+task.wait(0.1)
 
+end
