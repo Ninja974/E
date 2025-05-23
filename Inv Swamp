@@ -4,16 +4,12 @@ local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("To_Server
 local localPlayer = Players.LocalPlayer
 
 while true do
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= localPlayer then
-            local args = {
-                "skil_ting_asd",
-                player,
-                "swampbda_swamp_puddle",
-                1
-            }
-            remote:FireServer(unpack(args))
-        end
-    end
+    local args = {
+        "skil_ting_asd",
+        localPlayer,
+        "swampbda_swamp_puddle",
+        1
+    }
+    remote:FireServer(unpack(args))
     task.wait(0.01)
 end
