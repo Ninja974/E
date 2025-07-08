@@ -1,0 +1,126 @@
+-- Carga la Fluent UI y Addons
+repeat task.wait() until game:IsLoaded()
+local Library = loadstring(game:HttpGetAsync("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local options = Library.Options
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("To_Server"):WaitForChild("Handle_Initiate_S")
+local localPlayer = Players.LocalPlayer
+
+
+-- Crear la ventana principal
+local Window = Library:CreateWindow({
+    Title = "Fire Scripts | Knull <3",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(830, 525),
+    MinSize = Vector2.new(470, 380),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.RightShift
+})
+
+-- Crea tus pestañas
+local Tabs = {
+    ["Main"] = Window:AddTab({Title = "Main", Icon = "home"}),
+    ["Credits"] = Window:AddTab({Title = "Credits", Icon = ""})
+}
+
+-- Ejemplo: agrega un Toggle a la pestaña Main
+Tabs["Main"]:AddToggle("tTrap", {
+    Title = "Swamp Trap",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            task.spawn(function()
+                while options.tTrap.Value do
+                    local args = {
+                        [1] = "swamp_trap_damage",
+                        [2] = game.Players.LocalPlayer.Character,
+                        [3] = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(1.228732031677282e-07, -1.199800729751587, 8.192461109501892e-08)
+                    }
+
+                    game:GetService("ReplicatedStorage").Remotes.To_Server.Handle_Initiate_S:FireServer(unpack(args))
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+
+Tabs["Main"]:AddToggle("tinvisible", {
+    Title = "Inv Swamp",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            task.spawn(function()
+                while options.tinvisible.Value do
+                    local args = {
+                        "skil_ting_asd",
+                        localPlayer,
+                        "swampbda_swamp_puddle",
+                        1
+                    }
+                    remote:FireServer(unpack(args))
+                    task.wait(0.01)
+                end
+            end)
+        end
+    end
+})
+
+
+Tabs["Main"]:AddToggle("tSunImm", {
+    Title = "Sun Immunity",
+    Default = true,
+    Callback = function(Value)
+        client.PlayerScripts.Small_Scripts.Gameplay.Sun_Damage.Disabled = Value
+    end
+})
+
+Tabs["Main"]:AddButton({
+    Title = "Start Wagon Quest",
+    Description = "Get Quest",
+    Callback = function()
+        local Players = game:GetService("Players")
+        local client = Players.LocalPlayer
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local playerData = ReplicatedStorage.Player_Data:WaitForChild(client.Name)
+        local Handle_Initiate_S = ReplicatedStorage.Remotes.To_Server:WaitForChild("Handle_Initiate_S")
+
+        -- TP simple:
+        client.Character:WaitForChild("HumanoidRootPart").CFrame = workspace["Grandpa Wagwon"]:GetModelCFrame()
+        task.wait(0.2)
+
+        -- FireServer:
+        local args = {
+            [1] = "AddQuest",
+            [2] = "Players."..client.Name..".PlayerGui.Npc_Dialogue.LocalScript.Functions",
+            [3] = os.clock(),
+            [4] = playerData:WaitForChild("Quest"),
+            [5] = {
+                ["Current"] = "Deliver grandpa Wagwon's wagon",
+            }
+        }
+
+        Handle_Initiate_S:FireServer(unpack(args))
+    end
+})
+
+-- Configura SaveManager
+SaveManager:SetLibrary(Library)
+SaveManager:SetFolder("YourFolderName")  -- Cambia el nombre de carpeta si quieres
+SaveManager:BuildConfigSection(Tabs["Settings"])
+SaveManager:LoadAutoloadConfig()
+
+-- Pestaña de créditos (opcional)
+Tabs["Credits"]:AddParagraph({
+    Title = "Credits",
+    Content = "Script by TuNombre\nFluent UI by Dawid\nEnjoy!"
+})
+
+-- Selecciona la pestaña inicial
+Window:SelectTab(1)
