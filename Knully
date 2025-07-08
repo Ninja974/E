@@ -1,4 +1,4 @@
--- Carga la Fluent UI y Addons
+
 repeat task.wait() until game:IsLoaded()
 local Library = loadstring(game:HttpGetAsync("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
@@ -11,7 +11,7 @@ local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("To_Server
 local localPlayer = Players.LocalPlayer
 
 
--- Crear la ventana principal
+
 local Window = Library:CreateWindow({
     Title = "Fire Scripts | Knull <3",
     TabWidth = 160,
@@ -22,13 +22,13 @@ local Window = Library:CreateWindow({
     MinimizeKey = Enum.KeyCode.RightShift
 })
 
--- Crea tus pestañas
+
 local Tabs = {
     ["Main"] = Window:AddTab({Title = "Main", Icon = "home"}),
     ["Credits"] = Window:AddTab({Title = "Credits", Icon = ""})
 }
 
--- Ejemplo: agrega un Toggle a la pestaña Main
+
 Tabs["Main"]:AddToggle("tTrap", {
     Title = "Swamp Trap",
     Default = false,
@@ -110,17 +110,17 @@ Tabs["Main"]:AddButton({
     end
 })
 
--- Configura SaveManager
+
 SaveManager:SetLibrary(Library)
-SaveManager:SetFolder("YourFolderName")  -- Cambia el nombre de carpeta si quieres
+SaveManager:SetFolder("FireScripts")  
 SaveManager:BuildConfigSection(Tabs["Settings"])
 SaveManager:LoadAutoloadConfig()
 
--- Pestaña de créditos (opcional)
+
 Tabs["Credits"]:AddParagraph({
     Title = "Credits",
-    Content = "Script by TuNombre\nFluent UI by Dawid\nEnjoy!"
+    Content = "Script by Ninja974\nEnjoy! <3"
 })
 
--- Selecciona la pestaña inicial
+
 Window:SelectTab(1)
