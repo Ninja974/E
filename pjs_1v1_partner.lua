@@ -25,15 +25,16 @@
 
 --========================= CONFIG - EDIT THESE ==============================
 local PARTNER_NAME    = "artu2"      -- REQUIRED: exact username of your MAIN account (the one running CloudHub)
--- How this script re-injects itself after a teleport. Set ONE of the two.
--- LOADER_FILE is the easy one: the file's name inside your executor's workspace folder
---   (Xeno: C:\Users\renzo\AppData\Local\Xeno\workspace), which is what readfile() reads
---   from. A copy already lives there as pjs_1v1_partner.lua - keep the two in sync, or
---   just edit the workspace copy directly. Full Windows paths do NOT work here; the
---   executor sandboxes readfile to that folder.
--- LOADER_URL wins if both are set - use it only if you host this file on GitHub.
+-- How this script re-injects itself after a teleport. LOADER_URL wins if both are set.
+-- It must be the RAW github link (the "Raw" button), NOT the /blob/ page - HttpGet on a
+--   /blob/ url returns GitHub's HTML, and loadstring chokes on it.
+-- Re-upload this file to that repo after every edit, or the teleport keeps loading the
+--   OLD version from GitHub while your local copy sits here unused.
+-- LOADER_FILE is the offline fallback: a copy in the executor's own workspace folder,
+--   which is what readfile() reads from. A full Windows path does NOT work - the
+--   executor sandboxes readfile to that one folder.
+local LOADER_URL      = "https://raw.githubusercontent.com/rencito974/E/main/pjs_1v1_partner.lua"
 local LOADER_FILE     = "pjs_1v1_partner.lua"
-local LOADER_URL      = ""      -- optional raw github link to THIS file, e.g. "https://raw.githubusercontent.com/you/repo/main/pjs_1v1_partner.lua"
 local VERIFY_SECONDS  = 25      -- how long the arena gets to load the partner in before we call it a wrong match
 local MAX_MATCH_MIN   = 10      -- failsafe: leave back to the hub if a match never ends
 local ARROW_KA        = false   -- fight back with the arrow KA once the right opponent is confirmed.
