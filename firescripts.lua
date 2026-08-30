@@ -129,8 +129,14 @@ linked.LobbysPlace = table.find({5956785391, 9321822839}, placeId)
 linked.playerValues = nil
 linked.playerData = nil
 if not linked.LobbysPlace then
-    linked.playerValues = ReplicatedStorage.PlayerValues:WaitForChild(client.Name, math.huge)
-    linked.playerData = ReplicatedStorage.Player_Data:WaitForChild(client.Name, math.huge)
+    -- Bounded + guarded on purpose: a gamemode arena (1v1 etc.) may never replicate these,
+    -- and the old infinite wait would stall the WHOLE script before it could load in there.
+    pcall(function()
+        local pv = ReplicatedStorage:FindFirstChild("PlayerValues")
+        local pd = ReplicatedStorage:FindFirstChild("Player_Data")
+        linked.playerValues = pv and pv:WaitForChild(client.Name, 30)
+        linked.playerData   = pd and pd:WaitForChild(client.Name, 30)
+    end)
 end
 local Handle_Initiate_S = ReplicatedStorage.Remotes.To_Server:WaitForChild("Handle_Initiate_S")
 local Handle_Initiate_S_ = ReplicatedStorage.Remotes.To_Server:WaitForChild("Handle_Initiate_S_")
@@ -603,6 +609,7 @@ local Tabs = {
     ["Lobby"] = Window:AddTab({Title = "Lobby/Hub", Icon = "home"});
     ["Auto Farm"] = Window:AddTab({Title = "Auto Farm", Icon = "repeat"});
     ["Kill Aura"] = Window:AddTab({Title = "Kill Aura", Icon = "sword"});
+    ["1v1"] = Window:AddTab({Title = "1v1", Icon = "sword"});
     ["Skills"] = Window:AddTab({Title = "Skills", Icon = "repeat"});
     ["Misc"] = Window:AddTab({Title = "Misc", Icon = "feather"});
     ["Quests"] = Window:AddTab({Title = "Quests", Icon = "carrot"});
@@ -745,6 +752,361 @@ Tabs["Lobby"]:AddToggle("tHubJoin", {
 }):OnChanged(function(Value)
     if Value then linked.autoJoinGamemode() end
 end)
+
+
+-- ============ HUB 1v1 (PARTNER-ONLY) ============
+-- Queues the hub's 1v1 gamemode over and over until the match contains ONE specific
+-- account - the username typed in the Partner box. Land against anyone else (or an
+-- empty arena) and BOTH accounts leave the match and requeue together.
+--
+-- Both accounts run on the same PC, so they coordinate through the executor's shared
+-- file folder (same trick as the Mugen leader signal above):
+--   1v1_hub_server.txt   "<jobId>|<epoch>"    THIS account's hub instance - the partner
+--                                             script teleports into the same hub server
+--   1v1_queue_signal.txt "<queueAt>"          the exact second BOTH fire queu_up, so the
+--                                             matchmaker sees two fresh queues at once
+--   1v1_abort.txt        "<epoch>|<writer>"   "wrong opponent - bail out now" broadcast
+-- The other account runs pjs_1v1_partner.lua, which speaks this same protocol.
+do
+    local S_HUBSRV = "FireHub/PJS/1v1_hub_server.txt"
+    local S_QUEUE  = "FireHub/PJS/1v1_queue_signal.txt"
+    local S_ABORT  = "FireHub/PJS/1v1_abort.txt"
+
+    local HUB1V1       = 9321822839
+    local QUEUE_LEAD   = 5    -- secs between publishing the queue instant and both accounts firing it
+    local QUEUE_GRACE  = 20   -- a queue signal older than this is stale and gets rewritten
+    local ABORT_FRESH  = 15   -- an abort older than this is ignored
+    local REQUEUE_WAIT = 25   -- if queu_up didn't take, how long to sit in the hub before retrying
+
+    -- Every place that ISN'T a gamemode match. Anything we land in that's not on this
+    -- list is treated as the 1v1 arena (its place id changes per gamemode/map).
+    local NOT_ARENA = {
+        [5956785391]  = true,   -- Lobby
+        [9321822839]  = true,   -- Hub
+        [17387475546] = true, [13883279773] = true,   -- Map 1 public / private
+        [17387482786] = true, [13883059853] = true,   -- Map 2 public / private
+        [11468075017] = true,   -- Ouwigahara dungeon
+        [11468034852] = true,   -- Mugen train
+    }
+
+    pcall(function()
+        if makefolder then
+            if not isfolder("FireHub") then makefolder("FireHub") end
+            if not isfolder("FireHub/PJS") then makefolder("FireHub/PJS") end
+        end
+    end)
+
+    local function readf(p)
+        local ok, d = pcall(function() return isfile(p) and readfile(p) or nil end)
+        return ok and d or nil
+    end
+    local function writef(p, d) pcall(function() writefile(p, d) end) end
+
+    local function on1v1()  return options.t1v1Auto and options.t1v1Auto.Value end
+    local function partnerName()
+        local v = (options.i1v1Partner and options.i1v1Partner.Value) or ""
+        return (tostring(v):gsub("^%s*(.-)%s*$", "%1"))
+    end
+
+    -- Read from the player list, not the streamed-in character: with StreamingEnabled a
+    -- far-away partner has no HumanoidRootPart on our client and would read as "gone".
+    local function partnerHere()
+        local want = partnerName():lower()
+        if want == "" then return false end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Name:lower() == want or p.DisplayName:lower() == want then return true end
+        end
+        return false
+    end
+
+    local function writeQueue(at) writef(S_QUEUE, tostring(at)) end
+    local function readQueue()
+        local d = readf(S_QUEUE); if not d then return nil end
+        local q = tonumber(d:match("^%s*(%-?%d+)%s*$"))
+        if not q then return nil end
+        if os.time() > q + QUEUE_GRACE then return nil end   -- last round's signal -> ignore
+        return q
+    end
+
+    -- Both accounts run this; whoever gets there first writes the instant, then BOTH
+    -- re-read after a beat so a simultaneous write can't leave them a second apart.
+    local function agreeQueueTime()
+        local q = readQueue()
+        if q then return q end
+        q = os.time() + QUEUE_LEAD
+        writeQueue(q)
+        task.wait(1.5)
+        return readQueue() or q
+    end
+
+    local function writeAbort() writef(S_ABORT, os.time() .. "|" .. client.Name) end
+    local function readAbort()
+        local d = readf(S_ABORT); if not d then return nil end
+        local at, who = d:match("^(%-?%d+)|(.+)$")
+        at = tonumber(at)
+        if not at or not who then return nil end
+        return at, who
+    end
+
+    -- Publish our hub instance while we sit in the hub, so the partner script can
+    -- TeleportToPlaceInstance into THIS server instead of a random hub shard.
+    local function publishHubServer()
+        task.spawn(function()
+            while on1v1() and placeId == HUB1V1 do
+                writef(S_HUBSRV, jobId .. "|" .. os.time())
+                task.wait(5)
+            end
+        end)
+    end
+
+    -- HUB: wait for the partner to show up in our server, agree on one queue instant,
+    -- then both fire queu_up on it. Loops until the queue actually takes us out.
+    local function hubPhase()
+        local warned = false
+        while on1v1() do
+            if partnerName() == "" then
+                if not warned then
+                    warned = true
+                    Library:Notify({
+                        Title = "Auto 1v1",
+                        Content = "Type your other account's username in the Partner box first.",
+                        Duration = 8
+                    })
+                end
+                task.wait(2)
+            elseif not partnerHere() then
+                task.wait(2)   -- the partner script follows us into this hub server on its own
+            else
+                local queueAt = agreeQueueTime()
+                repeat task.wait(0.2) until os.time() >= queueAt or not on1v1()
+                if not on1v1() then break end
+                linked.autoJoinGamemode("1v1")
+                -- still standing here after this = the queue didn't take; wait it out and retry
+                local t0 = os.clock()
+                repeat task.wait(0.5) until (os.clock() - t0) > REQUEUE_WAIT or not on1v1()
+            end
+        end
+    end
+
+    -- ARENA: the actual check. Give the partner a few seconds to load in; if it's anyone
+    -- else in here, broadcast the abort (so the partner's match dies too) and go back.
+    local function arenaPhase()
+        local entered  = os.time()
+        local waitFor  = tonumber(options.s1v1Wait and options.s1v1Wait.Value) or 25
+        local maxMatch = (tonumber(options.s1v1MaxMatch and options.s1v1MaxMatch.Value) or 10) * 60
+        local deadline = os.clock() + waitFor
+        local verified = false
+
+        while on1v1() and os.clock() < deadline do
+            if partnerHere() then verified = true; break end
+            -- partner bailed from THEIR match first -> don't sit out our own timer
+            local at, who = readAbort()
+            if at and who ~= client.Name and at >= entered and (os.time() - at) <= ABORT_FRESH then
+                break
+            end
+            task.wait(0.5)
+        end
+
+        if not on1v1() then return end
+
+        if verified then
+            Library:Notify({
+                Title = "Auto 1v1",
+                Content = ("Matched with %s - go."):format(partnerName()),
+                Duration = 5
+            })
+            -- failsafe: never sit in a match forever if it never ends on its own
+            task.delay(maxMatch, function()
+                if on1v1() then TeleportService:Teleport(HUB1V1, client) end
+            end)
+        else
+            writeAbort()   -- tells the other account to drop its match too
+            Library:Notify({
+                Title = "Auto 1v1",
+                Content = ("%s isn't in this match - leaving and requeuing."):format(
+                    partnerName() ~= "" and partnerName() or "Partner"),
+                Duration = 5
+            })
+            task.wait(0.5)
+            TeleportService:Teleport(HUB1V1, client)
+        end
+    end
+
+    linked.run1v1Controller = function()
+        if not on1v1() then return end
+        if linked._1v1Ran then return end       -- once per execution (Callback + startup call)
+        linked._1v1Ran = true
+        task.spawn(function()
+            repeat task.wait() until game:IsLoaded()
+            task.wait(1)
+            if not on1v1() then linked._1v1Ran = false; return end
+            if placeId == HUB1V1 then
+                publishHubServer()
+                hubPhase()
+            elseif NOT_ARENA[placeId] then
+                TeleportService:Teleport(HUB1V1, client)   -- lobby/map/dungeon -> back to the hub
+            else
+                arenaPhase()
+            end
+        end)
+    end
+end
+
+Tabs["1v1"]:AddSection("Partner match")
+
+Tabs["1v1"]:AddParagraph({
+    Title = "How Auto 1v1 works";
+    Content = "Queues 1v1 in the hub until you get matched against ONE account - the username below. Anything else and both accounts leave the match and requeue together.\n\nSETUP:\n- This account: type the OTHER account's username below, turn Auto 1v1 on, and turn on Auto Execute (Settings tab) so it survives teleports.\n- Other account: run pjs_1v1_partner.lua with PARTNER_NAME set to THIS account's username.\n\nBoth accounts must be on the same PC - they sync through shared executor files. The partner script follows this account into its hub server on its own. Don't run Auto Grind at the same time.\n\nArrow KA below is your old Maps/Hub 1v1 script - it locks onto the Partner account automatically, so you don't have to pick from the dropdown.";
+})
+
+Tabs["1v1"]:AddInput("i1v1Partner", {
+    Title = "Partner username";
+    Default = nil;
+    Placeholder = "exact username of your other account";
+    Numeric = false;
+    Finished = true;
+})
+
+Tabs["1v1"]:AddSlider("s1v1Wait", {
+    Title = "Seconds to wait for the partner in a match";
+    Description = "How long the arena gets to load the partner in before we call it a wrong match";
+    Default = 25;
+    Min = 5;
+    Max = 60;
+    Rounding = 0;
+})
+
+Tabs["1v1"]:AddSlider("s1v1MaxMatch", {
+    Title = "Max minutes in a match";
+    Description = "Failsafe - leaves back to the hub if a match never ends";
+    Default = 10;
+    Min = 1;
+    Max = 30;
+    Rounding = 0;
+})
+
+Tabs["1v1"]:AddToggle("t1v1Auto", {
+    Title = "Auto 1v1 vs partner";
+    Description = "Requeue until the match is you two, leave and retry otherwise";
+    Default = false;
+    Callback = function(Value)
+        if Value then
+            -- both controllers own navigation; running them together fights over the hub
+            if options.tMasterFarm and options.tMasterFarm.Value then
+                options.tMasterFarm:SetValue(false)
+                Library:Notify({ Title = "Auto 1v1", Content = "Auto Grind turned off - they can't both drive.", Duration = 5 })
+            end
+            linked.run1v1Controller()
+        else
+            linked._1v1Ran = false
+        end
+    end
+})
+
+-- ---- ARROW KA (ported from your standalone "Maps/Hub 1v1.lua") ----
+-- The Kill Aura tab's arrow KA is gated on race/mastery/playerData and skips the
+-- lobby places, so it's dead weight in a 1v1. This one is the stripped version that
+-- actually works there: pick ONE player and hammer arrow_knock_back_damage at them,
+-- re-casting the arrow_knock_back skill on its cooldown so the damage keeps landing.
+-- Target = the Partner box if that account is in the server, otherwise the dropdown.
+
+Tabs["1v1"]:AddSection("Arrow KA")
+
+-- Seeded with the players already here rather than an empty list + empty Default -
+-- some Fluent builds throw while rendering a dropdown that has neither.
+local initialTargets = {}
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= client then table.insert(initialTargets, p.Name) end
+end
+
+Tabs["1v1"]:AddDropdown("d1v1Target", {
+    Title = "Arrow KA target";
+    Description = "Auto-fills with everyone else in the server. Ignored while the Partner box matches someone here.";
+    Values = initialTargets;
+    Multi = false;
+})
+
+-- keep the dropdown in sync with the server, and auto-pick when there's only one
+-- other player (which is exactly the 1v1 case)
+task.spawn(function()
+    local function sameList(a, b)
+        if #a ~= #b then return false end
+        for i = 1, #a do if a[i] ~= b[i] then return false end end
+        return true
+    end
+    while task.wait(1) do
+        -- only churn the dropdown while one of the 1v1 features is actually armed;
+        -- a 40-player map server would otherwise rebuild it on every join/leave
+        local armed = (options.tArrowKA and options.tArrowKA.Value)
+            or (options.t1v1Auto and options.t1v1Auto.Value)
+        if options.d1v1Target and armed then
+            local names = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= client then table.insert(names, p.Name) end
+            end
+            if not sameList(options.d1v1Target.Values, names) then
+                options.d1v1Target:SetValues(names)
+                if #names == 1 then options.d1v1Target:SetValue(names[1]) end
+            end
+        end
+    end
+end)
+
+linked.arrowKaTarget = function()
+    -- the partner takes priority, so the KA follows the 1v1 without re-picking by hand
+    local want = (options.i1v1Partner and tostring(options.i1v1Partner.Value or "") or ""):lower()
+    if want ~= "" then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= client and (p.Name:lower() == want or p.DisplayName:lower() == want) then
+                return p
+            end
+        end
+    end
+    local pick = options.d1v1Target and options.d1v1Target.Value
+    if type(pick) == "string" and pick ~= "" then
+        return Players:FindFirstChild(pick)
+    end
+    return nil
+end
+
+Tabs["1v1"]:AddToggle("tArrowKA", {
+    Title = "Arrow KA (single target)";
+    Description = "Spams arrow knock back at the target. Needs a bow build.";
+    Default = false;
+    Callback = function(Value)
+        if not Value then return end
+        -- damage loop
+        task.spawn(function()
+            while options.tArrowKA.Value do
+                local target = linked.arrowKaTarget()
+                local char = target and target.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    pcall(function()
+                        Handle_Initiate_S:FireServer(
+                            "arrow_knock_back_damage",
+                            client.Character,
+                            char:GetModelCFrame(),
+                            char,
+                            400,
+                            400
+                        )
+                    end)
+                end
+                task.wait(0.3)
+            end
+        end)
+        -- skill re-cast loop (the damage remote only lands while the skill is active)
+        task.spawn(function()
+            while options.tArrowKA.Value do
+                pcall(function()
+                    Handle_Initiate_S_:InvokeServer("skil_ting_asd", client, "arrow_knock_back", 5)
+                end)
+                task.wait(6)
+            end
+        end)
+    end
+})
 
 Tabs["Lobby"]:AddSection(getTrans("seClan", "Title"))
 
@@ -3369,6 +3731,9 @@ Tabs["Auto Farm"]:AddToggle("tMasterFarm", {
     Default = false;
     Callback = function(Value)
         if Value then
+            if options.t1v1Auto and options.t1v1Auto.Value then
+                options.t1v1Auto:SetValue(false)   -- mutually exclusive: both own hub navigation
+            end
             linked.runFarmController()
         else
             linked._farmRan = false
@@ -3396,7 +3761,9 @@ end
 -- these run the auto-join actions DIRECTLY on (re)join, bypassing the empty-handler
 -- loop above that swallows OnChanged in the lobby/hub. this is what makes autoload work.
 -- skipped while Auto Grind is on, since that controller owns navigation (avoids a hub tug-of-war).
-if not (options.tMasterFarm and options.tMasterFarm.Value) then
+local _navOwned = (options.tMasterFarm and options.tMasterFarm.Value)
+    or (options.t1v1Auto and options.t1v1Auto.Value)   -- Auto 1v1 owns hub navigation too
+if not _navOwned then
     if placeId == 5956785391 and options.tAutoJoin and options.tAutoJoin.Value then
         linked.autoJoinServer()
     end
@@ -3416,6 +3783,11 @@ end
 -- auto-grind controller: dungeons + hourly mugen, based out of Map 2 (self-gates on the toggle)
 if linked.runFarmController then
     linked.runFarmController()
+end
+
+-- auto 1v1 controller: hub queue -> arena partner check -> leave + requeue (self-gates on the toggle)
+if linked.run1v1Controller then
+    linked.run1v1Controller()
 end
 
 
