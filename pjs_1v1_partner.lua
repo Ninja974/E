@@ -37,6 +37,9 @@ local LOADER_URL      = "https://raw.githubusercontent.com/rencito974/E/main/pjs
 local LOADER_FILE     = "pjs_1v1_partner.lua"
 local VERIFY_SECONDS  = 15       -- how long the arena gets to load the partner in before we call it a wrong match
 local MAX_MATCH_MIN   = 10      -- failsafe: leave back to the hub if a match never ends
+local RESET_AT_HEALTH = 5       -- bail out of the match once this account's health drops to
+                                -- this or below, so it resets instead of dying. Broadcasts the
+                                -- abort, so the main leaves and requeues with it. 0 = off.
 local ARROW_KA        = false   -- fight back with the arrow KA once the right opponent is confirmed.
                                 -- OFF by default: if you're farming wins on the main, this account
                                 -- should stand there and take it. Needs a bow build to do anything.
@@ -393,6 +396,31 @@ local function startArrowKA()
     end)
 end
 
+--============================= HEALTH RESET =================================
+-- Watch our own health and call onLow once it hits the threshold, so the match gets
+-- reset instead of ending in a death. Arms only AFTER we've seen a healthy value:
+-- a character that hasn't finished loading reads 0 and would trip it instantly.
+-- Re-reads the humanoid every tick, so a respawn mid-match is picked up for free.
+local function watchHealth(onLow)
+    if RESET_AT_HEALTH <= 0 then return end
+    task.spawn(function()
+        local armed = false
+        while true do
+            local char = client.Character
+            local hum  = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                if hum.Health > RESET_AT_HEALTH then
+                    armed = true
+                elseif armed then
+                    onLow(hum.Health)   -- covers 0 too: dying resets the match as well
+                    return
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
 --============================== STATE: ARENA ================================
 -- The check. Give the partner a few seconds to load in; if it's anyone else in here,
 -- broadcast the abort (so the main drops its match too) and go back to the hub.
@@ -417,10 +445,27 @@ local function arenaPhase()
         setStatus("matched with " .. PARTNER_NAME .. " - fighting", C_RUN)
         warn("[1v1Partner] correct opponent - staying in this match.")
         startArrowKA()   -- no-op unless ARROW_KA is on
+
+        -- one exit for both triggers below, so they can't both fire the teleport
+        local left = false
+        local function leaveNow(reason, tellPartner)
+            if left then return end
+            left = true
+            if tellPartner then writeAbort() end   -- pulls the main out so we requeue together
+            setStatus(reason, C_LEAVE)
+            warn("[1v1Partner] " .. reason)
+            task.wait(0.3)
+            TeleportService:Teleport(HUB, client)
+        end
+
+        -- reset the match before this account actually dies
+        watchHealth(function(hp)
+            leaveNow(("health %.0f - resetting the match"):format(hp), true)
+        end)
+
         -- failsafe: never sit in a match forever if it never ends on its own
         task.delay(MAX_MATCH_MIN * 60, function()
-            setStatus("match ran long - leaving", C_LEAVE)
-            TeleportService:Teleport(HUB, client)
+            leaveNow("match ran long - leaving", false)
         end)
     else
         writeAbort()   -- tells the main to drop its match too
