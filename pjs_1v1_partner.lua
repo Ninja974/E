@@ -35,7 +35,7 @@ local PARTNER_NAME    = "artu2"      -- REQUIRED: exact username of your MAIN ac
 --   executor sandboxes readfile to that one folder.
 local LOADER_URL      = "https://raw.githubusercontent.com/rencito974/E/main/pjs_1v1_partner.lua"
 local LOADER_FILE     = "pjs_1v1_partner.lua"
-local VERIFY_SECONDS  = 25      -- how long the arena gets to load the partner in before we call it a wrong match
+local VERIFY_SECONDS  = 15       -- how long the arena gets to load the partner in before we call it a wrong match
 local MAX_MATCH_MIN   = 10      -- failsafe: leave back to the hub if a match never ends
 local ARROW_KA        = false   -- fight back with the arrow KA once the right opponent is confirmed.
                                 -- OFF by default: if you're farming wins on the main, this account
