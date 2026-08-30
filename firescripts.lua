@@ -896,6 +896,7 @@ do
         local maxMatch = (tonumber(options.s1v1MaxMatch and options.s1v1MaxMatch.Value) or 10) * 60
         local deadline = os.clock() + waitFor
         local verified = false
+        local leaving  = false   -- set once we've committed to leaving this arena
 
         while on1v1() and os.clock() < deadline do
             if partnerHere() then verified = true; break end
@@ -915,11 +916,54 @@ do
                 Content = ("Matched with %s - go."):format(partnerName()),
                 Duration = 5
             })
+            -- Arrow KA arms ITSELF, and only from here: in the arena, only once the
+            -- opponent checked out, and only after the grace delay. That's why the toggle
+            -- is excluded from configs - nothing else is allowed to switch it on.
+            if options.t1v1AutoKa and options.t1v1AutoKa.Value then
+                local kaDelay = tonumber(options.s1v1KaDelay and options.s1v1KaDelay.Value) or 60
+                task.delay(kaDelay, function()
+                    if on1v1() and not leaving and options.tArrowKA and not options.tArrowKA.Value then
+                        options.tArrowKA:SetValue(true)
+                        Library:Notify({
+                            Title = "Auto 1v1",
+                            Content = ("Arrow KA armed on %s."):format(partnerName()),
+                            Duration = 4
+                        })
+                    end
+                end)
+            end
+
+            -- The partner can end the match from its side - its low-health reset fires an
+            -- abort before it dies. Keep listening for that so we leave with it and both
+            -- requeue, instead of standing here alone until the failsafe times out.
+            task.spawn(function()
+                while on1v1() do
+                    local at, who = readAbort()
+                    if at and who ~= client.Name and at >= entered and (os.time() - at) <= ABORT_FRESH then
+                        leaving = true
+                        if options.tArrowKA then options.tArrowKA:SetValue(false) end
+                        Library:Notify({
+                            Title = "Auto 1v1",
+                            Content = ("%s reset the match - requeuing."):format(who),
+                            Duration = 5
+                        })
+                        TeleportService:Teleport(HUB1V1, client)
+                        return
+                    end
+                    task.wait(0.5)
+                end
+            end)
+
             -- failsafe: never sit in a match forever if it never ends on its own
             task.delay(maxMatch, function()
-                if on1v1() then TeleportService:Teleport(HUB1V1, client) end
+                if on1v1() then
+                    leaving = true
+                    if options.tArrowKA then options.tArrowKA:SetValue(false) end
+                    TeleportService:Teleport(HUB1V1, client)
+                end
             end)
         else
+            leaving = true
             writeAbort()   -- tells the other account to drop its match too
             Library:Notify({
                 Title = "Auto 1v1",
@@ -940,6 +984,12 @@ do
             repeat task.wait() until game:IsLoaded()
             task.wait(1)
             if not on1v1() then linked._1v1Ran = false; return end
+            -- never leave the KA running outside a match: a rejoin into the hub or a map
+            -- lands here with whatever the toggle was, and swinging at the hub is a way
+            -- to get noticed. arenaPhase is the only thing allowed to switch it on.
+            if NOT_ARENA[placeId] and options.tArrowKA and options.tArrowKA.Value then
+                options.tArrowKA:SetValue(false)
+            end
             if placeId == HUB1V1 then
                 publishHubServer()
                 hubPhase()
@@ -1024,6 +1074,21 @@ Tabs["1v1"]:AddDropdown("d1v1Target", {
     Description = "Auto-fills with everyone else in the server. Ignored while the Partner box matches someone here.";
     Values = initialTargets;
     Multi = false;
+})
+
+Tabs["1v1"]:AddToggle("t1v1AutoKa", {
+    Title = "Arm Arrow KA automatically in the 1v1";
+    Description = "Only in the match place, only after the partner check passes, and only after the delay below";
+    Default = true;
+})
+
+Tabs["1v1"]:AddSlider("s1v1KaDelay", {
+    Title = "Seconds before Arrow KA arms";
+    Description = "Counted from the moment the opponent is confirmed";
+    Default = 60;
+    Min = 0;
+    Max = 300;
+    Rounding = 0;
 })
 
 -- keep the dropdown in sync with the server, and auto-pick when there's only one
@@ -2997,7 +3062,10 @@ SaveManager:SetLibrary(Library)
 -- firing them in the wrong place (e.g. Auto Join Dungeon yanking you off Map 2 during mugen).
 SaveManager:SetIgnoreIndexes({
     "tJoinDungeon", "tAutoDungeonMob", "tCollectOrb", "tAutoShop", "tAutoQuit",
-    "tJoinMugen", "tAutoMugan", "tQuitMugen", "tAutoMugenMob", "tAutoHell"
+    "tJoinMugen", "tAutoMugan", "tQuitMugen", "tAutoMugenMob", "tAutoHell",
+    -- same reason: the 1v1 controller arms this one itself, inside the match only.
+    -- If autoload restored it you'd rejoin the hub already swinging.
+    "tArrowKA"
 })
 SaveManager:SetFolder("FireHub/PJS/" .. client.UserId)
 SaveManager:BuildConfigSection(Tabs["Settings"])
